@@ -12,7 +12,7 @@ custom_hooks = [dict(type='NumClassCheckHook')]
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 load_from = None
-resume_from =  None #'/media/data4/lym/mmdetection-detr/work_dirs/Conditional_detr_r50_8x2_50e_coco/epoch_10.pth'
+resume_from =  None
 workflow = [('train', 1)]
 
 # disable opencv multithreading to avoid system being overloaded
