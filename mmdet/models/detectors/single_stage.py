@@ -79,7 +79,7 @@ class SingleStageDetector(BaseDetector):
             dict[str, Tensor]: A dictionary of loss components.
         """
         #img = torch.load('D://detr_img.pth').cuda("cuda:0")
-        img = torch.load('D://k.pth').cuda("cuda:0")
+        #img = torch.load('D://k.pth').cuda("cuda:0")
         #img = torch.load('D:\\init_r50\\img_r50.pth').cuda("cuda:0")
         #img = torch.load('D:\\k.pth').cuda("cuda:0")
         #img = torch.load('D:\\init_r50\\img_r50.pth').cuda("cuda:0")
@@ -88,10 +88,10 @@ class SingleStageDetector(BaseDetector):
         # x = []
         # x.append(torch.load('D://detr_chou.pth').cuda("cuda:0"))
         # x = tuple(x)
-        x = []
-        x.append(torch.load('D://kk.pth').cuda("cuda:0"))
-        x = tuple(x)
-        dpb = x[0].sum()
+        # x = []
+        # x.append(torch.load('D://kk.pth').cuda("cuda:0"))
+        # x = tuple(x)
+        # dpb = x[0].sum()
         losses = self.bbox_head.forward_train(x, img_metas, gt_bboxes,
                                               gt_labels, gt_bboxes_ignore)
         return losses
