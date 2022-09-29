@@ -7,13 +7,16 @@ model = dict(
         type='ResNet',
         depth=50,
         num_stages=4,
-        out_indices=(3, ),
+        strides=(1, 2, 2, 1),
+        dilations=(1, 1, 1, 2),
+        out_indices=(3,),
         frozen_stages=1,
-       # norm_cfg=dict(type='BN', requires_grad=False),
+        # norm_cfg=dict(type='BN', requires_grad=False),
         norm_cfg=dict(type='FrozenBatchNorm', requires_grad=False),
         norm_eval=True,
         style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
+        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
+        dilation_type='detr'),
     bbox_head=dict(
         type='DNDETRHead',
         num_query=300,
@@ -39,7 +42,7 @@ model = dict(
                         feedforward_channels=2048,
                         num_fcs=2,
                         ffn_drop=0.0,
-                        act_cfg=dict(type='PReLU'),
+                        act_cfg=dict(type='ReLU'),
                     ),
                     attn_cfgs=[
                         dict(
@@ -70,7 +73,7 @@ model = dict(
                         feedforward_channels=2048,
                         num_fcs=2,
                         ffn_drop=0.0,
-                        act_cfg=dict(type='PReLU'),
+                        act_cfg=dict(type='ReLU'),
                     ),
                     attn_cfgs=[
                         dict(
