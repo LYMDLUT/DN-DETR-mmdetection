@@ -487,14 +487,14 @@ class DNDETRHead(AnchorFreeHead):
                 bbox_gt=box_xyxy_to_cxcywh(bbox_gt)
                 bbox_gt_norm = bbox_gt/factor
                 gt_bboxes_norm.append(bbox_gt_norm)
-            scalar, label_noise_scale, box_noise_scale, num_patterns = 5, 0.2, 0.4, 0
+            scalar, label_noise_scale, box_noise_scale, num_patterns = 5, 0.2, 0.4, self.transformer.num_patterns
             targets = []
             for box, lable in zip(gt_bboxes_norm, gt_labels):
                 gt_one = {'labels':lable,'boxes':box}
                 targets.append(gt_one)
             dn_args = targets, scalar, label_noise_scale, box_noise_scale, num_patterns
         else:
-            dn_args = 0
+            dn_args = self.transformer.num_patterns
 ##############################################################
         x = self.input_proj(x)
         # interpolate masks to have the same spatial shape with x

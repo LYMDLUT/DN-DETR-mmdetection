@@ -11,7 +11,7 @@ custom_hooks = [dict(type='NumClassCheckHook')]
 
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = '移植权重dnclass91.pth'
+load_from = None
 resume_from = None
 workflow = [('train', 1)]
 

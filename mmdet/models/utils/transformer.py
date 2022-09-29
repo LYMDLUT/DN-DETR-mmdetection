@@ -891,7 +891,7 @@ class DNTransformer(BaseModule):
             Defaults to None.
     """
 
-    def __init__(self, d_model, num_patterns, num_queries, encoder=None, decoder=None, init_cfg=None):
+    def __init__(self, d_model, num_patterns, num_queries=300, encoder=None, decoder=None, init_cfg=None):
         super(DNTransformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)
