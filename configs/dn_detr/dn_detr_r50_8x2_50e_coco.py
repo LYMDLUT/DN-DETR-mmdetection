@@ -20,12 +20,13 @@ model = dict(
         query_dim=4,
         random_refpoints_xy=False,
         bbox_embed_diff_each_layer=False,
-        num_classes=80,
+        num_classes=91,
         in_channels=2048,
         transformer=dict(
             type='DNTransformer',
             d_model=256,
-            num_patterns=0,
+            num_patterns=3,
+            num_queries=300,
             encoder=dict(
                 type='DABDetrTransformerEncoder',
                 num_layers=6,
@@ -169,11 +170,11 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=1,
     workers_per_gpu=2,
-    train=dict(pipeline=train_pipeline),
-    val=dict(pipeline=test_pipeline),
-    test=dict(pipeline=test_pipeline))
+    train=dict(pipeline=train_pipeline, continuous_categories=False),
+    val=dict(pipeline=test_pipeline, continuous_categories=False),
+    test=dict(pipeline=test_pipeline, continuous_categories=False))
 # optimizer
 optimizer = dict(
     type='AdamW',

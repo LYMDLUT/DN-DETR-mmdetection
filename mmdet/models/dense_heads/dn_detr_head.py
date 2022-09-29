@@ -13,8 +13,194 @@ from mmdet.models.utils import build_transformer
 from ..builder import HEADS, build_loss
 from .anchor_free_head import AnchorFreeHead
 from mmdet.models.utils.transformer import inverse_sigmoid
-from .dn_components import prepare_for_dn, dn_post_process, compute_dn_loss
+from .dn_components import prepare_for_dn
+from torchvision.ops.boxes import box_area
 
+def box_cxcywh_to_xyxy(x):
+    x_c, y_c, w, h = x.unbind(-1)
+    b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
+         (x_c + 0.5 * w), (y_c + 0.5 * h)]
+    return torch.stack(b, dim=-1)
+
+
+def box_xyxy_to_cxcywh(x):
+    x0, y0, x1, y1 = x.unbind(-1)
+    b = [(x0 + x1) / 2, (y0 + y1) / 2,
+         (x1 - x0), (y1 - y0)]
+    return torch.stack(b, dim=-1)
+
+
+# modified from torchvision to also return the union
+def box_iou(boxes1, boxes2):
+    area1 = box_area(boxes1)
+    area2 = box_area(boxes2)
+
+    # import ipdb; ipdb.set_trace()
+    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
+    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
+
+    wh = (rb - lt).clamp(min=0)  # [N,M,2]
+    inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
+
+    union = area1[:, None] + area2 - inter
+
+    iou = inter / (union + 1e-6)
+    return iou, union
+def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: float = 2):
+    """
+    Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+        alpha: (optional) Weighting factor in range (0,1) to balance
+                positive vs negative examples. Default = -1 (no weighting).
+        gamma: Exponent of the modulating factor (1 - p_t) to
+               balance easy vs hard examples.
+    Returns:
+        Loss tensor
+    """
+    prob = inputs.sigmoid()
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    p_t = prob * targets + (1 - prob) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+
+    if alpha >= 0:
+        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+        loss = alpha_t * loss
+
+    return loss.mean(1).sum() / num_boxes
+
+def generalized_box_iou(boxes1, boxes2):
+    """
+    Generalized IoU from https://giou.stanford.edu/
+
+    The boxes should be in [x0, y0, x1, y1] format
+
+    Returns a [N, M] pairwise matrix, where N = len(boxes1)
+    and M = len(boxes2)
+    """
+    # degenerate boxes gives inf / nan results
+    # so do an early check
+    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
+    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
+    # except:
+    #     import ipdb; ipdb.set_trace()
+    iou, union = box_iou(boxes1, boxes2)
+
+    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
+    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+
+    wh = (rb - lt).clamp(min=0)  # [N,M,2]
+    area = wh[:, :, 0] * wh[:, :, 1]
+
+    return iou - (area - union) / (area + 1e-6)
+def dn_post_process(outputs_class, outputs_coord, mask_dict):
+    """
+    post process of dn after output from the transformer
+    put the dn part in the mask_dict
+    """
+    if mask_dict and mask_dict['pad_size'] > 0:
+        output_known_class = outputs_class[:, :, :mask_dict['pad_size'], :]
+        output_known_coord = outputs_coord[:, :, :mask_dict['pad_size'], :]
+        outputs_class = outputs_class[:, :, mask_dict['pad_size']:, :]
+        outputs_coord = outputs_coord[:, :, mask_dict['pad_size']:, :]
+        mask_dict['output_known_lbs_bboxes'] = (output_known_class, output_known_coord)
+    return outputs_class, outputs_coord
+
+def prepare_for_loss(mask_dict):
+    """
+    prepare dn components to calculate loss
+    Args:
+        mask_dict: a dict that contains dn information
+    """
+    output_known_class, output_known_coord = mask_dict['output_known_lbs_bboxes']
+    known_labels, known_bboxs = mask_dict['known_lbs_bboxes']
+    map_known_indice = mask_dict['map_known_indice']
+
+    known_indice = mask_dict['known_indice']
+
+    batch_idx = mask_dict['batch_idx']
+    bid = batch_idx[known_indice]
+    if len(output_known_class) > 0:
+        output_known_class = output_known_class.permute(1, 2, 0, 3)[(bid, map_known_indice)].permute(1, 0, 2)
+        output_known_coord = output_known_coord.permute(1, 2, 0, 3)[(bid, map_known_indice)].permute(1, 0, 2)
+    num_tgt = known_indice.numel()
+    return known_labels, known_bboxs, output_known_class, output_known_coord, num_tgt
+
+def tgt_loss_boxes(src_boxes, tgt_boxes, num_tgt, ):
+    """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+       targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
+       The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
+    """
+    if len(tgt_boxes) == 0:
+        return {
+            'tgt_loss_bbox': torch.as_tensor(0.).to('cuda'),
+            'tgt_loss_giou': torch.as_tensor(0.).to('cuda'),
+        }
+
+    loss_bbox = F.l1_loss(src_boxes, tgt_boxes, reduction='none')
+
+    losses = {}
+    losses['tgt_loss_bbox'] = loss_bbox.sum()*5 / num_tgt
+
+    loss_giou = 1 - torch.diag(generalized_box_iou(
+        box_cxcywh_to_xyxy(src_boxes),
+        box_cxcywh_to_xyxy(tgt_boxes)))
+    losses['tgt_loss_giou'] = loss_giou.sum()*2 / num_tgt
+    return losses
+
+def tgt_loss_labels(src_logits_, tgt_labels_, num_tgt, focal_alpha, log=True):
+    """Classification loss (NLL)
+    targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
+    """
+    if len(tgt_labels_) == 0:
+        return {
+            'tgt_loss_ce': torch.as_tensor(0.).to('cuda'),
+            'tgt_class_error': torch.as_tensor(0.).to('cuda'),
+        }
+
+    src_logits, tgt_labels = src_logits_.unsqueeze(0), tgt_labels_.unsqueeze(0)
+
+    target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
+                                        dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
+    target_classes_onehot.scatter_(2, tgt_labels.unsqueeze(-1), 1)
+
+    target_classes_onehot = target_classes_onehot[:, :, :-1]
+    loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_tgt, alpha=focal_alpha, gamma=2) * \
+              src_logits.shape[1]
+
+    losses = {'tgt_loss_ce': loss_ce}
+    return losses
+
+def compute_dn_loss(mask_dict):
+    """
+    compute dn loss in criterion
+    Args:
+        mask_dict: a dict for dn information
+        training: training or inference flag
+        aux_num: aux loss number
+        focal_alpha:  for focal loss
+    """
+    losses = {}
+    focal_alpha=0.25
+    known_labels, known_bboxs, output_known_class, output_known_coord, \
+    num_tgt = prepare_for_loss(mask_dict)
+    losses.update(tgt_loss_labels(output_known_class[-1], known_labels, num_tgt, focal_alpha))
+    losses.update(tgt_loss_boxes(output_known_coord[-1], known_bboxs, num_tgt))
+
+    for i in range(5):
+        # dn aux loss
+        l_dict = tgt_loss_labels(output_known_class[i], known_labels, num_tgt, focal_alpha)
+        l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+        losses.update(l_dict)
+        l_dict = tgt_loss_boxes(output_known_coord[i], known_bboxs, num_tgt)
+        l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+        losses.update(l_dict)
+    return losses
+################################################################################################
 
 @HEADS.register_module()
 class DNDETRHead(AnchorFreeHead):
@@ -298,6 +484,7 @@ class DNDETRHead(AnchorFreeHead):
             for img_meta, bbox_gt in zip(img_metas, gt_bboxes):
                 img_h, img_w, _ = img_meta['img_shape']
                 factor = torch.tensor([img_w, img_h, img_w, img_h]).cuda()
+                bbox_gt=box_xyxy_to_cxcywh(bbox_gt)
                 bbox_gt_norm = bbox_gt/factor
                 gt_bboxes_norm.append(bbox_gt_norm)
             scalar, label_noise_scale, box_noise_scale, num_patterns = 5, 0.2, 0.4, 0
@@ -349,6 +536,9 @@ class DNDETRHead(AnchorFreeHead):
         # all_bbox_preds = self.fc_reg(self.activate(
         #     self.reg_ffn(outs_dec))).sigmoid()
         return outputs_class, outputs_coord, mask_dict
+##################################################################################################
+
+
 
     @force_fp32(apply_to=('all_cls_scores_list', 'all_bbox_preds_list'))
     def loss(self,
@@ -401,6 +591,8 @@ class DNDETRHead(AnchorFreeHead):
             self.loss_single, all_cls_scores, all_bbox_preds,
             all_gt_bboxes_list, all_gt_labels_list, img_metas_list,
             all_gt_bboxes_ignore_list)
+        dn_loss_dict = compute_dn_loss(mask_dict[0])
+
 
         loss_dict = dict()
         # loss from the last decoder layer
@@ -426,6 +618,7 @@ class DNDETRHead(AnchorFreeHead):
             loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
             loss_dict[f'd{num_dec_layer}.loss_iou'] = loss_iou_i
             num_dec_layer += 1
+        loss_dict.update(dn_loss_dict)
         return loss_dict
 
     def loss_single(self,
@@ -803,146 +996,7 @@ class DNDETRHead(AnchorFreeHead):
                 with shape (n,)
         """
         # forward of this head requires img_metas
-        outputs_class, outputs_coord, mask_dict = outs = self.forward(feats, img_metas)
+        outputs_class, outputs_coord, mask_dict =  self.forward(feats, img_metas)
         outs = (outputs_class, outputs_coord)
         results_list = self.get_bboxes(*outs, img_metas, rescale=rescale)
         return results_list
-
-    def forward_onnx(self, feats, img_metas):
-        """Forward function for exporting to ONNX.
-
-        Over-write `forward` because: `masks` is directly created with
-        zero (valid position tag) and has the same spatial size as `x`.
-        Thus the construction of `masks` is different from that in `forward`.
-
-        Args:
-            feats (tuple[Tensor]): Features from the upstream network, each is
-                a 4D-tensor.
-            img_metas (list[dict]): List of image information.
-
-        Returns:
-            tuple[list[Tensor], list[Tensor]]: Outputs for all scale levels.
-
-                - all_cls_scores_list (list[Tensor]): Classification scores \
-                    for each scale level. Each is a 4D-tensor with shape \
-                    [nb_dec, bs, num_query, cls_out_channels]. Note \
-                    `cls_out_channels` should includes background.
-                - all_bbox_preds_list (list[Tensor]): Sigmoid regression \
-                    outputs for each scale level. Each is a 4D-tensor with \
-                    normalized coordinate format (cx, cy, w, h) and shape \
-                    [nb_dec, bs, num_query, 4].
-        """
-        num_levels = len(feats)
-        img_metas_list = [img_metas for _ in range(num_levels)]
-        return multi_apply(self.forward_single_onnx, feats, img_metas_list)
-
-    def forward_single_onnx(self, x, img_metas):
-        """"Forward function for a single feature level with ONNX exportation.
-
-        Args:
-            x (Tensor): Input feature from backbone's single stage, shape
-                [bs, c, h, w].
-            img_metas (list[dict]): List of image information.
-
-        Returns:
-            all_cls_scores (Tensor): Outputs from the classification head,
-                shape [nb_dec, bs, num_query, cls_out_channels]. Note
-                cls_out_channels should includes background.
-            all_bbox_preds (Tensor): Sigmoid outputs from the regression
-                head with normalized coordinate format (cx, cy, w, h).
-                Shape [nb_dec, bs, num_query, 4].
-        """
-        # Note `img_shape` is not dynamically traceable to ONNX,
-        # since the related augmentation was done with numpy under
-        # CPU. Thus `masks` is directly created with zeros (valid tag)
-        # and the same spatial shape as `x`.
-        # The difference between torch and exported ONNX model may be
-        # ignored, since the same performance is achieved (e.g.
-        # 40.1 vs 40.1 for DETR)
-        batch_size = x.size(0)
-        h, w = x.size()[-2:]
-        masks = x.new_zeros((batch_size, h, w))  # [B,h,w]
-
-        x = self.input_proj(x)
-        # interpolate masks to have the same spatial shape with x
-        masks = F.interpolate(
-            masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-        pos_embed = self.positional_encoding(masks)
-        outs_dec, _ = self.transformer(x, masks, self.query_embedding.weight,
-                                       pos_embed)
-
-        all_cls_scores = self.fc_cls(outs_dec)
-        all_bbox_preds = self.fc_reg(self.activate(
-            self.reg_ffn(outs_dec))).sigmoid()
-        return all_cls_scores, all_bbox_preds
-
-    def onnx_export(self, all_cls_scores_list, all_bbox_preds_list, img_metas):
-        """Transform network outputs into bbox predictions, with ONNX
-        exportation.
-
-        Args:
-            all_cls_scores_list (list[Tensor]): Classification outputs
-                for each feature level. Each is a 4D-tensor with shape
-                [nb_dec, bs, num_query, cls_out_channels].
-            all_bbox_preds_list (list[Tensor]): Sigmoid regression
-                outputs for each feature level. Each is a 4D-tensor with
-                normalized coordinate format (cx, cy, w, h) and shape
-                [nb_dec, bs, num_query, 4].
-            img_metas (list[dict]): Meta information of each image.
-
-        Returns:
-            tuple[Tensor, Tensor]: dets of shape [N, num_det, 5]
-                and class labels of shape [N, num_det].
-        """
-        assert len(img_metas) == 1, \
-            'Only support one input image while in exporting to ONNX'
-
-        cls_scores = all_cls_scores_list[-1][-1]
-        bbox_preds = all_bbox_preds_list[-1][-1]
-
-        # Note `img_shape` is not dynamically traceable to ONNX,
-        # here `img_shape_for_onnx` (padded shape of image tensor)
-        # is used.
-        img_shape = img_metas[0]['img_shape_for_onnx']
-        max_per_img = self.test_cfg.get('max_per_img', self.num_query)
-        batch_size = cls_scores.size(0)
-        # `batch_index_offset` is used for the gather of concatenated tensor
-        batch_index_offset = torch.arange(batch_size).to(
-            cls_scores.device) * max_per_img
-        batch_index_offset = batch_index_offset.unsqueeze(1).expand(
-            batch_size, max_per_img)
-
-        # supports dynamical batch inference
-        if self.loss_cls.use_sigmoid:
-            cls_scores = cls_scores.sigmoid()
-            scores, indexes = cls_scores.view(batch_size, -1).topk(
-                max_per_img, dim=1)
-            det_labels = indexes % self.num_classes
-            bbox_index = indexes // self.num_classes
-            bbox_index = (bbox_index + batch_index_offset).view(-1)
-            bbox_preds = bbox_preds.view(-1, 4)[bbox_index]
-            bbox_preds = bbox_preds.view(batch_size, -1, 4)
-        else:
-            scores, det_labels = F.softmax(
-                cls_scores, dim=-1)[..., :-1].max(-1)
-            scores, bbox_index = scores.topk(max_per_img, dim=1)
-            bbox_index = (bbox_index + batch_index_offset).view(-1)
-            bbox_preds = bbox_preds.view(-1, 4)[bbox_index]
-            det_labels = det_labels.view(-1)[bbox_index]
-            bbox_preds = bbox_preds.view(batch_size, -1, 4)
-            det_labels = det_labels.view(batch_size, -1)
-
-        det_bboxes = bbox_cxcywh_to_xyxy(bbox_preds)
-        # use `img_shape_tensor` for dynamically exporting to ONNX
-        img_shape_tensor = img_shape.flip(0).repeat(2)  # [w,h,w,h]
-        img_shape_tensor = img_shape_tensor.unsqueeze(0).unsqueeze(0).expand(
-            batch_size, det_bboxes.size(1), 4)
-        det_bboxes = det_bboxes * img_shape_tensor
-        # dynamically clip bboxes
-        x1, y1, x2, y2 = det_bboxes.split((1, 1, 1, 1), dim=-1)
-        from mmdet.core.export import dynamic_clip_for_onnx
-        x1, y1, x2, y2 = dynamic_clip_for_onnx(x1, y1, x2, y2, img_shape)
-        det_bboxes = torch.cat([x1, y1, x2, y2], dim=-1)
-        det_bboxes = torch.cat((det_bboxes, scores.unsqueeze(-1)), -1)
-
-        return det_bboxes, det_labels

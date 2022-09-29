@@ -891,13 +891,14 @@ class DNTransformer(BaseModule):
             Defaults to None.
     """
 
-    def __init__(self, d_model, num_patterns, encoder=None, decoder=None, init_cfg=None):
+    def __init__(self, d_model, num_patterns, num_queries, encoder=None, decoder=None, init_cfg=None):
         super(DNTransformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)
         self.d_model = d_model
         self.embed_dims = self.encoder.embed_dims
         self.num_patterns = num_patterns
+        self.num_queries =num_queries
         if not isinstance(num_patterns, int):
             Warning("num_patterns should be int but {}".format(type(num_patterns)))
             self.num_patterns = 0

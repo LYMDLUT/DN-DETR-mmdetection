@@ -78,8 +78,20 @@ class SingleStageDetector(BaseDetector):
         Returns:
             dict[str, Tensor]: A dictionary of loss components.
         """
+        #img = torch.load('D://detr_img.pth').cuda("cuda:0")
+        img = torch.load('D://k.pth').cuda("cuda:0")
+        #img = torch.load('D:\\init_r50\\img_r50.pth').cuda("cuda:0")
+        #img = torch.load('D:\\k.pth').cuda("cuda:0")
+        #img = torch.load('D:\\init_r50\\img_r50.pth').cuda("cuda:0")
         super(SingleStageDetector, self).forward_train(img, img_metas)
         x = self.extract_feat(img)
+        # x = []
+        # x.append(torch.load('D://detr_chou.pth').cuda("cuda:0"))
+        # x = tuple(x)
+        x = []
+        x.append(torch.load('D://kk.pth').cuda("cuda:0"))
+        x = tuple(x)
+        dpb = x[0].sum()
         losses = self.bbox_head.forward_train(x, img_metas, gt_bboxes,
                                               gt_labels, gt_bboxes_ignore)
         return losses
@@ -98,7 +110,21 @@ class SingleStageDetector(BaseDetector):
                 The outer list corresponds to each image. The inner list
                 corresponds to each class.
         """
+        kkk=img.sum()
+        #torch.save(img, 'D://detr_img.pth')
+        #img = torch.load('D://detr_img.pth').cuda("cuda:0")
+        #img = torch.load('D:\\k.pth').cuda("cuda:0")
         feat = self.extract_feat(img)
+        dpb=feat[0].sum()
+        #dpb1 = torch.load('D://kk.pth').cuda("cuda:0")
+        #dpb1 = torch.load('D://detr_chou.pth').cuda("cuda:0")
+        #ji = feat[0] - dpb1
+        # torch.save(feat[0].cpu(), 'D://kk.pth')
+        # torch.save(xs["0"], 'D://detr_chou.pth')
+        # feat = []
+        # feat.append(torch.load('D://kk.pth').cuda("cuda:0"))
+        # feat.append(torch.load('D://detr_chou.pth').cuda("cuda:0"))
+        # feat=tuple(feat)
         results_list = self.bbox_head.simple_test(
             feat, img_metas, rescale=rescale)
         bbox_results = [
