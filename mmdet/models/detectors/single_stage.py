@@ -110,12 +110,12 @@ class SingleStageDetector(BaseDetector):
                 The outer list corresponds to each image. The inner list
                 corresponds to each class.
         """
-        kkk=img.sum()
+        #kkk=img.sum()
         #torch.save(img, 'D://detr_img.pth')
         #img = torch.load('D://detr_img.pth').cuda("cuda:0")
         #img = torch.load('D:\\k.pth').cuda("cuda:0")
         feat = self.extract_feat(img)
-        dpb=feat[0].sum()
+        #dpb=feat[0].sum()
         #dpb1 = torch.load('D://kk.pth').cuda("cuda:0")
         #dpb1 = torch.load('D://detr_chou.pth').cuda("cuda:0")
         #ji = feat[0] - dpb1
