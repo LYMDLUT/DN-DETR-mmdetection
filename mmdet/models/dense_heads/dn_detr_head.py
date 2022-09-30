@@ -174,7 +174,7 @@ def tgt_loss_labels(src_logits_, tgt_labels_, num_tgt, focal_alpha, log=True):
 
     losses = {'tgt_loss_ce': loss_ce}
     return losses
-
+@force_fp32(apply_to=('mask_dict'))
 def compute_dn_loss(mask_dict):
     """
     compute dn loss in criterion
@@ -540,7 +540,7 @@ class DNDETRHead(AnchorFreeHead):
 
 
 
-    @force_fp32(apply_to=('all_cls_scores_list', 'all_bbox_preds_list'))
+    @force_fp32(apply_to=('all_cls_scores_list', 'all_bbox_preds_list',  'mask_dict'))
     def loss(self,
              all_cls_scores_list,
              all_bbox_preds_list,
