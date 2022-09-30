@@ -92,7 +92,7 @@ model = dict(
                                      'ffn', 'norm')),
             )),
         positional_encoding=dict(
-            type='SinePositionalEncodingHW', temperatureH=20,temperatureW=20,num_feats=128, normalize=True),
+            type='SinePositionalEncodingHW', temperatureH=10,temperatureW=10,num_feats=128, normalize=True),
         loss_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
