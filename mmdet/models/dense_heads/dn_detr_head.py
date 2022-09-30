@@ -198,12 +198,20 @@ def compute_dn_loss(mask_dict):
 
     for i in range(5):
         # dn aux loss
-        l_dict = tgt_loss_labels(output_known_class[i], known_labels, num_tgt, focal_alpha)
-        l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
-        losses.update(l_dict)
-        l_dict = tgt_loss_boxes(output_known_coord[i], known_bboxs, num_tgt)
-        l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
-        losses.update(l_dict)
+        if 'output_known_lbs_bboxes' in mask_dict:
+            l_dict = tgt_loss_labels(output_known_class[i], known_labels, num_tgt, focal_alpha)
+            l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+            losses.update(l_dict)
+            l_dict = tgt_loss_boxes(output_known_coord[i], known_bboxs, num_tgt)
+            l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+            losses.update(l_dict)
+        else:
+            l_dict = dict()
+            l_dict['tgt_loss_bbox'] = torch.as_tensor(0.).to('cuda')
+            l_dict['tgt_loss_giou'] = torch.as_tensor(0.).to('cuda')
+            l_dict['tgt_loss_ce'] = torch.as_tensor(0.).to('cuda')
+            l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+            losses.update(l_dict)
     return losses
 ################################################################################################
 
