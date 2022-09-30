@@ -186,10 +186,15 @@ def compute_dn_loss(mask_dict):
     """
     losses = {}
     focal_alpha=0.25
-    known_labels, known_bboxs, output_known_class, output_known_coord, \
-    num_tgt = prepare_for_loss(mask_dict)
-    losses.update(tgt_loss_labels(output_known_class[-1], known_labels, num_tgt, focal_alpha))
-    losses.update(tgt_loss_boxes(output_known_coord[-1], known_bboxs, num_tgt))
+    if 'output_known_lbs_bboxes' in mask_dict:
+        known_labels, known_bboxs, output_known_class, output_known_coord, \
+        num_tgt = prepare_for_loss(mask_dict)
+        losses.update(tgt_loss_labels(output_known_class[-1], known_labels, num_tgt, focal_alpha))
+        losses.update(tgt_loss_boxes(output_known_coord[-1], known_bboxs, num_tgt))
+    else:
+        losses['tgt_loss_bbox'] = torch.as_tensor(0.).to('cuda')
+        losses['tgt_loss_giou'] = torch.as_tensor(0.).to('cuda')
+        losses['tgt_loss_ce'] = torch.as_tensor(0.).to('cuda')
 
     for i in range(5):
         # dn aux loss
