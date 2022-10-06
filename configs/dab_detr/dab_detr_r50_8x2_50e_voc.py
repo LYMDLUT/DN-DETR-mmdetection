@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/coco_detection.py', '../_base_/default_runtime.py'
+    '../_base_/datasets/voc0712.py', '../_base_/default_runtime.py'
 ]
 model = dict(
     type='DABDETR',
@@ -169,7 +169,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     train=dict(pipeline=train_pipeline, continuous_categories=True),
     val=dict(pipeline=test_pipeline, continuous_categories=True),
