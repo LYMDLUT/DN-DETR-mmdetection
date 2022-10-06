@@ -38,7 +38,7 @@ model = dict(
                         feedforward_channels=2048,
                         num_fcs=2,
                         ffn_drop=0.0,
-                        act_cfg=dict(type='PReLU'),
+                        act_cfg=dict(type='ReLU'),
                     ),
                     attn_cfgs=[
                         dict(
@@ -69,7 +69,7 @@ model = dict(
                         feedforward_channels=2048,
                         num_fcs=2,
                         ffn_drop=0.0,
-                        act_cfg=dict(type='PReLU'),
+                        act_cfg=dict(type='ReLU'),
                     ),
                     attn_cfgs=[
                         dict(
