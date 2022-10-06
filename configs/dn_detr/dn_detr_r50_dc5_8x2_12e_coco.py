@@ -175,9 +175,9 @@ test_pipeline = [
 data = dict(
     samples_per_gpu=2,
     workers_per_gpu=2,
-    train=dict(pipeline=train_pipeline),
-    val=dict(pipeline=test_pipeline),
-    test=dict(pipeline=test_pipeline))
+    train=dict(pipeline=train_pipeline, continuous_categories=False),
+    val=dict(pipeline=test_pipeline, continuous_categories=False),
+    test=dict(pipeline=test_pipeline, continuous_categories=False))
 # optimizer
 optimizer = dict(
     type='AdamW',
