@@ -16,11 +16,11 @@ model = dict(
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
     bbox_head=dict(
         type='DABDETRHead',
-        num_query=300,
+        num_query=100,
         query_dim=4,
         random_refpoints_xy=False,
         bbox_embed_diff_each_layer=False,
-        num_classes=80,
+        num_classes=20,
         in_channels=2048,
         transformer=dict(
             type='DABTransformer',
